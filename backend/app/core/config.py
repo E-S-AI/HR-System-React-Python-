@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str
+    encryption_key: str
     access_token_minutes: int = 30
 
 

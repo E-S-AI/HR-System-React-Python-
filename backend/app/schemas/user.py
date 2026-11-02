@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from typing import Literal
 
 class UserCreate(BaseModel):
     employee_id: int
@@ -12,7 +13,7 @@ class UserCreate(BaseModel):
 class UserCreated(BaseModel):
     id: int
     phone_number: str
-    employee_id: int
+    employee_id: int | None
     static_pin: str  # يظهر مرة واحدة فقط
 
 
@@ -36,3 +37,10 @@ class UserRead(BaseModel):
     locked_until: datetime | None
     last_login_at: datetime | None
     roles: list[str]
+
+
+class StaffCreate(BaseModel):
+    phone_number: str
+    password: str = Field(min_length=8, max_length=128)
+    role_code: Literal["CENTRAL_ADMIN", "CENTRAL_HR", "DIRECTORATE_HR"]
+    employee_id: int | None = None

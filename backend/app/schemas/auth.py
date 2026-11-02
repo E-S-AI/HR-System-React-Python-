@@ -5,11 +5,13 @@ class LoginRequest(BaseModel):
     phone_number: str
     password: str
     pin: str | None = Field(default=None, pattern=r"^\d{6}$")
+    otp: str | None = Field(default=None, pattern=r"^\d{6}$")
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    requires_2fa_enrollment: bool = False
 
 
 class MeResponse(BaseModel):
@@ -18,3 +20,15 @@ class MeResponse(BaseModel):
     employee_id: int | None
     is_super_admin: bool
     roles: list[str]
+
+
+class TwoFASetupResponse(BaseModel):
+    setup_token: str
+    secret: str
+    otpauth_uri: str
+    qr_svg_data_uri: str
+
+
+class TwoFAConfirm(BaseModel):
+    setup_token: str
+    code: str = Field(pattern=r"^\d{6}$")

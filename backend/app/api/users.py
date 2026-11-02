@@ -12,13 +12,14 @@ from app.schemas.user import (
     UserCreate,
     UserCreated,
     UserRead,
+    StaffCreate,
 )
 from app.services import users as svc
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 hr_or_admin = require_roles("CENTRAL_ADMIN", "CENTRAL_HR", "DIRECTORATE_HR")
-
+admin_only = require_roles("CENTRAL_ADMIN")
 
 def to_read(u: User) -> UserRead:
     return UserRead(
@@ -94,3 +95,29 @@ async def update_status(
     actor: User = Depends(hr_or_admin),
 ):
     return to_read(await svc.set_active(db, actor, user_id, data.is_active))
+
+@router.post("/staff", response_model=UserCreated, status_code=201)
+async def create_staff(
+    data: StaffCreate,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(admin_only),
+):
+    user, pin = await svc.create_staff_account(db, actor, data)
+    return UserCreated(
+        id=user.id,
+        phone_number=user.phone_number,
+        employee_id=user.employee_id,
+        static_pin=pin,
+    )
+
+
+@router.post("/{user_id}/reset-2fa", response_model=PinResetResponse)
+async def reset_2fa(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(admin_only),
+):
+    return PinResetResponse(static_pin=await svc.reset_2fa(db, actor, user_id))
+
+
+
