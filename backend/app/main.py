@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.employees import router as employees_router
 from app.core.database import get_db
 
 app = FastAPI(title="Centralized HRMS")
@@ -14,6 +15,8 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+
+app.include_router(employees_router)
 
 
 @app.get("/health")
