@@ -3,7 +3,14 @@ import asyncio
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import SessionLocal, engine
-from app.models import AppointmentCategory, Governorate
+from app.models import AppointmentCategory, Governorate, Role, User
+
+ROLES = [
+    ("CENTRAL_ADMIN", "مسؤول الإدارة المركزية"),
+    ("CENTRAL_HR", "موارد بشرية مركزية"),
+    ("DIRECTORATE_HR", "موارد بشرية مديرية"),
+    ("EMPLOYEE", "موظف"),
+]
 
 GOVERNORATES = [
     ("ادلب", "Idlib", "ID"),
@@ -53,6 +60,11 @@ async def main() -> None:
                 ]
             )
             .on_conflict_do_nothing(index_elements=["category_code"])
+        )
+        await db.execute(
+            insert(Role)
+            .values([{"code": c, "name_ar": n} for c, n in ROLES])
+            .on_conflict_do_nothing(index_elements=["code"])
         )
         await db.commit()
     await engine.dispose()

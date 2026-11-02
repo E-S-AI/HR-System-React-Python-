@@ -6,9 +6,13 @@ from app.core.database import get_db
 from app.models import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeRead
 from app.services.employees import create_employee
+from app.api.deps import require_roles
 
-router = APIRouter(prefix="/employees", tags=["employees"])
-
+router = APIRouter(
+    prefix="/employees",
+    tags=["employees"],
+    dependencies=[Depends(require_roles("CENTRAL_ADMIN", "CENTRAL_HR", "DIRECTORATE_HR"))],
+)
 
 @router.post("", response_model=EmployeeRead, status_code=201)
 async def create(data: EmployeeCreate, db: AsyncSession = Depends(get_db)):
