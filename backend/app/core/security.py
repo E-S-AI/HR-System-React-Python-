@@ -13,15 +13,19 @@ from app.core.config import settings
 _ph = PasswordHasher()
 _fernet = Fernet(settings.encryption_key.encode())
 DUMMY_HASH = _ph.hash("dummy-password")
+_hash_slots = asyncio.Semaphore(4)
 
 
 async def hash_secret(plain: str) -> str:
-    return await asyncio.to_thread(_ph.hash, plain)
+    async with _hash_slots:
+        return await asyncio.to_thread(_ph.hash, plain)
+
 
 
 async def verify_secret(hashed: str, plain: str) -> bool:
     try:
-        return await asyncio.to_thread(_ph.verify, hashed, plain)
+        async with _hash_slots:
+            return await asyncio.to_thread(_ph.verify, hashed, plain)
     except (VerificationError, InvalidHashError):
         return False
 
