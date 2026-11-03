@@ -3,8 +3,9 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AppointmentCategory, Employee, Governorate
+from app.models import AppointmentCategory, Employee, Governorate, OrgUnit, User
 from app.schemas.employee import EmployeeCreate
+from app.services.scope import get_scope
 
 UNIQUE_MESSAGES = {
     "national_id": "الرقم الوطني مسجل مسبقاً لموظف آخر",
@@ -13,12 +14,23 @@ UNIQUE_MESSAGES = {
 }
 
 
-async def create_employee(db: AsyncSession, data: EmployeeCreate) -> Employee:
+async def create_employee(
+    db: AsyncSession, data: EmployeeCreate, actor: User
+) -> Employee:
+    scope = await get_scope(db, actor)
+    if scope is not None and not scope.allows(data.governorate_code, data.org_unit_id):
+        raise HTTPException(
+            status_code=403, detail="هذه المحافظة أو الوحدة خارج نطاق صلاحيتك"
+        )
+
     governorate = await db.scalar(
         select(Governorate).where(Governorate.governorate_code == data.governorate_code)
     )
     if governorate is None:
         raise HTTPException(status_code=422, detail="رمز المحافظة غير موجود")
+
+    if data.org_unit_id is not None and await db.get(OrgUnit, data.org_unit_id) is None:
+        raise HTTPException(status_code=422, detail="الوحدة التنظيمية غير موجودة")
 
     category = None
     if data.appointment_category_code:

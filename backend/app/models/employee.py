@@ -53,7 +53,9 @@ class Employee(Base):
     residence_address_detail: Mapped[str | None] = mapped_column(Text)
 
     # --- الهيكل التنظيمي (FK يُضاف لاحقاً) ---
-    org_unit_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    org_unit_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("org_units.id"), index=True
+    )
     org_levels_import_raw: Mapped[dict | None] = mapped_column(JSONB)
 
     # --- البيانات الوظيفية ---

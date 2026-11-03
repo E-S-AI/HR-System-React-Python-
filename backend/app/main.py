@@ -7,7 +7,7 @@ from app.api.employees import router as employees_router
 from app.core.database import get_db
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
-
+from app.api.org import router as org_router
 
 
 app = FastAPI(title="Centralized HRMS")
@@ -23,6 +23,7 @@ app.add_middleware(
 app.include_router(employees_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(org_router)
 
 
 @app.get("/health")

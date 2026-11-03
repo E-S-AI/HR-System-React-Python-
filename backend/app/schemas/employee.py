@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 class EmployeeCreate(BaseModel):
     governorate_code: str
+    org_unit_id: int | None = None
     appointment_category_code: str | None = None
     biometric_code: str | None = None
 
@@ -45,6 +46,7 @@ class EmployeeRead(BaseModel):
     formatted_serial: str
     employee_code: str | None
     governorate_code: str
+    org_unit_id: int | None
     appointment_category_code: str | None
     biometric_code: str | None
     first_name: str

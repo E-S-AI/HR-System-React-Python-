@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import generate_pin, hash_secret
 from app.models import Employee, Role, User
-from app.schemas.user import UserCreate , StaffCreate
+from app.schemas.user import StaffCreate, UserCreate
+from app.services.scope import get_scope
 
 PRIVILEGED = {"CENTRAL_ADMIN", "CENTRAL_HR", "DIRECTORATE_HR"}
 
@@ -15,18 +16,29 @@ PRIVILEGED = {"CENTRAL_ADMIN", "CENTRAL_HR", "DIRECTORATE_HR"}
 def is_admin(user: User) -> bool:
     return user.is_super_admin or "CENTRAL_ADMIN" in {r.code for r in user.roles}
 
+
 def is_privileged(user: User) -> bool:
     return user.is_super_admin or bool({r.code for r in user.roles} & PRIVILEGED)
+
 
 async def get_manageable_user(db: AsyncSession, actor: User, user_id: int) -> User:
     target = await db.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="الحساب غير موجود")
+
     target_roles = {r.code for r in target.roles}
     if (target.is_super_admin or target_roles & PRIVILEGED) and not is_admin(actor):
         raise HTTPException(
             status_code=403, detail="لا تملك صلاحية التعديل على حسابات المسؤولين"
         )
+
+    scope = await get_scope(db, actor)
+    if scope is not None:
+        employee = await db.get(Employee, target.employee_id) if target.employee_id else None
+        if employee is None or not scope.allows(
+            employee.governorate_code, employee.org_unit_id
+        ):
+            raise HTTPException(status_code=404, detail="الحساب غير موجود")
     return target
 
 
@@ -34,7 +46,11 @@ async def create_employee_account(
     db: AsyncSession, actor: User, data: UserCreate
 ) -> tuple[User, str]:
     employee = await db.get(Employee, data.employee_id)
-    if employee is None:
+    scope = await get_scope(db, actor)
+    if employee is None or (
+        scope is not None
+        and not scope.allows(employee.governorate_code, employee.org_unit_id)
+    ):
         raise HTTPException(status_code=404, detail="الموظف غير موجود")
     if await db.scalar(select(User.id).where(User.employee_id == employee.id)):
         raise HTTPException(status_code=409, detail="لهذا الموظف حساب مسبقاً")
@@ -60,52 +76,6 @@ async def create_employee_account(
         await db.rollback()
         raise HTTPException(status_code=409, detail="رقم الهاتف مستخدم لحساب آخر")
     return user, pin
-
-
-async def reset_password(
-    db: AsyncSession, actor: User, user_id: int, new_password: str
-) -> None:
-    target = await get_manageable_user(db, actor, user_id)
-    target.password_hash = await hash_secret(new_password)
-    target.password_reset_by_user_id = actor.id
-    target.password_reset_at = datetime.now(timezone.utc)
-    target.failed_login_attempts = 0
-    target.locked_until = None
-    await db.commit()
-
-
-async def reset_pin(db: AsyncSession, actor: User, user_id: int) -> str:
-    target = await get_manageable_user(db, actor, user_id)
-    if target.require_google_auth:
-        raise HTTPException(
-            status_code=400, detail="هذا الحساب يدخل بـ Google Authenticator ولا رمز ثابت له"
-        )
-    pin = generate_pin()
-    target.static_login_pin_hash = await hash_secret(pin)
-    target.pin_generated_at = datetime.now(timezone.utc)
-    target.pin_reset_by_user_id = actor.id
-    target.failed_login_attempts = 0
-    target.locked_until = None
-    await db.commit()
-    return pin
-
-
-async def unlock(db: AsyncSession, actor: User, user_id: int) -> None:
-    target = await get_manageable_user(db, actor, user_id)
-    target.failed_login_attempts = 0
-    target.locked_until = None
-    await db.commit()
-
-
-async def set_active(
-    db: AsyncSession, actor: User, user_id: int, active: bool
-) -> User:
-    if user_id == actor.id:
-        raise HTTPException(status_code=400, detail="لا يمكنك تعطيل حسابك بنفسك")
-    target = await get_manageable_user(db, actor, user_id)
-    target.is_active = active
-    await db.commit()
-    return target
 
 
 async def create_staff_account(
@@ -140,15 +110,47 @@ async def create_staff_account(
     return user, pin
 
 
+async def reset_password(
+    db: AsyncSession, actor: User, user_id: int, new_password: str
+) -> None:
+    target = await get_manageable_user(db, actor, user_id)
+    target.password_hash = await hash_secret(new_password)
+    target.password_reset_by_user_id = actor.id
+    target.password_reset_at = datetime.now(timezone.utc)
+    target.failed_login_attempts = 0
+    target.locked_until = None
+    await db.commit()
+
+
+async def reset_pin(db: AsyncSession, actor: User, user_id: int) -> str:
+    target = await get_manageable_user(db, actor, user_id)
+    if target.require_google_auth:
+        raise HTTPException(
+            status_code=400,
+            detail="هذا الحساب يدخل بـ Google Authenticator ولا رمز ثابت له",
+        )
+    pin = generate_pin()
+    target.static_login_pin_hash = await hash_secret(pin)
+    target.pin_generated_at = datetime.now(timezone.utc)
+    target.pin_reset_by_user_id = actor.id
+    target.failed_login_attempts = 0
+    target.locked_until = None
+    await db.commit()
+    return pin
+
+
 async def reset_2fa(db: AsyncSession, actor: User, user_id: int) -> str:
     target = await db.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="الحساب غير موجود")
     if target.id == actor.id:
-        raise HTTPException(status_code=400, detail="لا يمكنك إعادة تعيين مصادقتك بنفسك")
+        raise HTTPException(
+            status_code=400, detail="لا يمكنك إعادة تعيين مصادقتك بنفسك"
+        )
     if not target.require_google_auth:
-        raise HTTPException(status_code=400, detail="المصادقة الثنائية غير مفعلة لهذا الحساب")
-
+        raise HTTPException(
+            status_code=400, detail="المصادقة الثنائية غير مفعلة لهذا الحساب"
+        )
     pin = generate_pin()
     target.require_google_auth = False
     target.google_auth_secret_encrypted = None
@@ -159,3 +161,21 @@ async def reset_2fa(db: AsyncSession, actor: User, user_id: int) -> str:
     target.locked_until = None
     await db.commit()
     return pin
+
+
+async def unlock(db: AsyncSession, actor: User, user_id: int) -> None:
+    target = await get_manageable_user(db, actor, user_id)
+    target.failed_login_attempts = 0
+    target.locked_until = None
+    await db.commit()
+
+
+async def set_active(
+    db: AsyncSession, actor: User, user_id: int, active: bool
+) -> User:
+    if user_id == actor.id:
+        raise HTTPException(status_code=400, detail="لا يمكنك تعطيل حسابك بنفسك")
+    target = await get_manageable_user(db, actor, user_id)
+    target.is_active = active
+    await db.commit()
+    return target
