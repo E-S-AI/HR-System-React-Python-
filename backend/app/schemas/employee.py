@@ -58,3 +58,7 @@ class EmployeeRead(BaseModel):
     permanent_or_contract: str
     state_start_date: date
     created_at: datetime
+
+
+class CategoryAssign(BaseModel):
+    category_code: str

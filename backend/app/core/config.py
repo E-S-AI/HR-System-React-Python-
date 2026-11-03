@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     secret_key: str
     encryption_key: str
     access_token_minutes: int = 30
+    upload_dir: str = "uploads"
 
 
 settings = Settings()

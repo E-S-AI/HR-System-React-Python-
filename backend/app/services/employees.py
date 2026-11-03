@@ -83,3 +83,43 @@ async def create_employee(
 
     await db.refresh(employee)
     return employee
+
+
+async def assign_category(
+    db: AsyncSession, actor: User, employee_id: int, category_code: str
+) -> Employee:
+    employee = await db.scalar(
+        select(Employee).where(Employee.id == employee_id).with_for_update()
+    )
+    scope = await get_scope(db, actor)
+    if employee is None or (
+        scope is not None
+        and not scope.allows(employee.governorate_code, employee.org_unit_id)
+    ):
+        raise HTTPException(status_code=404, detail="الموظف غير موجود")
+    if employee.employee_code or employee.appointment_category_code:
+        raise HTTPException(
+            status_code=409, detail="كود الموظف مولّد مسبقاً وهو ثابت لا يتغير"
+        )
+
+    category = await db.scalar(
+        select(AppointmentCategory).where(
+            AppointmentCategory.category_code == category_code
+        )
+    )
+    if category is None:
+        raise HTTPException(status_code=422, detail="رمز فئة التعيين غير موجود")
+    if category.employment_type != employee.permanent_or_contract:
+        raise HTTPException(
+            status_code=422,
+            detail=f"الفئة {category_code} ({category.employment_type}) لا تناسب موظفاً {employee.permanent_or_contract}",
+        )
+
+    employee.appointment_category_code = category.category_code
+    employee.employee_code = (
+        f"{employee.governorate_code}-{category.category_code}-{employee.formatted_serial}"
+    )
+    employee.updated_by_hr_id = actor.id
+    await db.commit()
+    await db.refresh(employee)
+    return employee

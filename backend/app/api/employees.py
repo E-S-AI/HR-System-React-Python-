@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models import Employee, User
-from app.schemas.employee import EmployeeCreate, EmployeeRead
-from app.services.employees import create_employee
+from app.schemas.employee import EmployeeCreate, EmployeeRead , CategoryAssign
+from app.services.employees import create_employee , assign_category
 from app.services.scope import get_scope
 
 router = APIRouter(prefix="/employees", tags=["employees"])
@@ -52,3 +52,13 @@ async def get_employee(
     ):
         raise HTTPException(status_code=404, detail="الموظف غير موجود")
     return employee
+
+
+@router.post("/{employee_id}/appointment-category", response_model=EmployeeRead)
+async def set_appointment_category(
+    employee_id: int,
+    data: CategoryAssign,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(hr_or_admin),
+):
+    return await assign_category(db, actor, employee_id, data.category_code)
