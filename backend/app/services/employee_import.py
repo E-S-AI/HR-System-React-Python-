@@ -96,7 +96,7 @@ COLUMNS: dict[str, tuple[str, list[str]]] = {
 
 LABEL = {f: aliases[0] for f, (_, aliases) in COLUMNS.items()}
 ALIAS_INDEX = {norm_text(a): f for f, (_, aliases) in COLUMNS.items() for a in aliases}
-IGNORED_HEADERS = {norm_text("العمر")}  # حقل مشتق من تاريخ التولد
+IGNORED_HEADERS = {norm_text("العمر"), norm_text("كود الموظف")}  # حقلان مشتقان  # حقل مشتق من تاريخ التولد
 FULL_NAME_KEY = norm_text("الاسم الثلاثي")
 TEXT_FORMAT_FIELDS = ("national_id", "phone_number", "biometric_code", "civil_reg_number")
 NON_EMPLOYEE_KINDS = ("org_level", "governorate", "category", "qual_hiring", "training_list")
