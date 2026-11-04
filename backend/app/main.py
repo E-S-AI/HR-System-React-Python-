@@ -11,6 +11,8 @@ from app.api.org import router as org_router
 from app.api.imports import router as imports_router
 from app.api.lookups import router as lookups_router
 from app.api.exports import router as exports_router
+from app.api.leave_balances import router as leave_balances_router
+from app.api.work_schedules import router as work_schedules_router
 
 
 
@@ -31,6 +33,8 @@ app.include_router(org_router)
 app.include_router(imports_router)
 app.include_router(lookups_router)
 app.include_router(exports_router)
+app.include_router(work_schedules_router)
+app.include_router(leave_balances_router)
 
 
 @app.get("/health")

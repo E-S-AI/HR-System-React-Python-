@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_roles
+from app.api.deps import require_roles , get_current_user
 from app.core.database import get_db
-from app.models import AppointmentCategory, Governorate, User
+from app.models import AppointmentCategory, Governorate, User , LeaveType
 
 router = APIRouter(prefix="/lookups", tags=["lookups"])
 
@@ -56,4 +56,34 @@ async def governorates(
             name_en=g.governorate_name_en,
         )
         for g in rows
+    ]
+
+class LeaveTypeRead(BaseModel):
+    code: str
+    name_ar: str
+    allow_employee_request: bool
+    deducts_balance: bool
+    min_duration_minutes: int | None
+    max_duration_minutes: int | None
+    enforce_72h_rule: bool
+
+
+@router.get("/leave-types", response_model=list[LeaveTypeRead])
+async def leave_types(
+    db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)
+):
+    rows = await db.scalars(
+        select(LeaveType).where(LeaveType.is_active).order_by(LeaveType.id)
+    )
+    return [
+        LeaveTypeRead(
+            code=t.code,
+            name_ar=t.name_ar,
+            allow_employee_request=t.allow_employee_request,
+            deducts_balance=t.deducts_balance,
+            min_duration_minutes=t.min_duration_minutes,
+            max_duration_minutes=t.max_duration_minutes,
+            enforce_72h_rule=t.enforce_72h_rule,
+        )
+        for t in rows.all()
     ]

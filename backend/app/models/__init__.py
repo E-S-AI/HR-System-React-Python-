@@ -4,9 +4,16 @@ from app.models.employee_extra import EmployeeQualification, EmployeeTraining
 from app.models.export_log import ExportLog
 from app.models.governorate import Governorate
 from app.models.imports import ImportJob, ImportJobError
+from app.models.leave import (
+    LeaveBalance,
+    LeaveTransaction,
+    LeaveType,
+    ServiceLeaveTier,
+)
 from app.models.org import OrgUnit, UserScope
 from app.models.role import Role, user_roles
 from app.models.user import User
+from app.models.work_schedule import WorkSchedule
 
 __all__ = [
     "AppointmentCategory",
@@ -17,9 +24,14 @@ __all__ = [
     "Governorate",
     "ImportJob",
     "ImportJobError",
+    "LeaveBalance",
+    "LeaveTransaction",
+    "LeaveType",
     "OrgUnit",
     "Role",
+    "ServiceLeaveTier",
     "User",
     "UserScope",
+    "WorkSchedule",
     "user_roles",
 ]
