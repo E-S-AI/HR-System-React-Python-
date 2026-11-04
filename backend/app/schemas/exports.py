@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
+from typing import Literal
 
 class EmployeeExportFilters(BaseModel):
     governorate_code: str | None = None
@@ -27,6 +27,8 @@ class EmployeeExportFilters(BaseModel):
 class EmployeeExportRequest(BaseModel):
     filters: EmployeeExportFilters = Field(default_factory=EmployeeExportFilters)
     columns: list[str] | None = None
+    file_format: Literal["xlsx", "csv"] = "xlsx"
+    delimiter: Literal[",", ";", "\t"] = ","
 
 
 class ExportColumnRead(BaseModel):

@@ -20,7 +20,7 @@ from app.models import (
 from app.services.excel_utils import (
     RefError,
     norm_text,
-    read_sheet,
+    read_table,
     to_date,
     to_int,
     to_national_id,
@@ -137,6 +137,16 @@ def build_template() -> bytes:
     for i, line in enumerate(INSTRUCTIONS, start=1):
         notes.cell(row=i, column=1, value=line)
     return workbook_bytes(wb)
+
+def build_template_csv() -> bytes:
+    import csv
+    import io
+
+    buf = io.StringIO(newline="")
+    csv.writer(buf, lineterminator="\r\n").writerow(
+        [aliases[0] for _, (_, aliases) in COLUMNS.items()]
+    )
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
 # ---------------------------------------------------------------- المراجع
@@ -411,7 +421,7 @@ async def analyze(
 ) -> Analysis:
     try:
         headers, rows = await asyncio.to_thread(
-            read_sheet, path, sheet_name, header_row, MAX_ROWS
+            read_table, path, sheet_name, header_row, MAX_ROWS
         )
     except ValueError as exc:
         return Analysis({"file_error": str(exc)}, file_failed=True)

@@ -17,6 +17,7 @@ router = APIRouter(prefix="/exports", tags=["exports"])
 hr_or_admin = require_roles("CENTRAL_ADMIN", "CENTRAL_HR", "DIRECTORATE_HR")
 admin_only = require_roles("CENTRAL_ADMIN")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+CSV = "text/csv; charset=utf-8"
 
 
 @router.get("/employees/columns", response_model=list[ExportColumnRead])
@@ -33,11 +34,15 @@ async def export_employees_file(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(hr_or_admin),
 ):
-    content = await export_employees(db, actor, data.filters, data.columns)
+    content = await export_employees(
+        db, actor, data.filters, data.columns, data.file_format, data.delimiter
+    )
     return Response(
         content=content,
-        media_type=XLSX,
-        headers={"Content-Disposition": f'attachment; filename="{export_filename()}"'},
+        media_type=CSV if data.file_format == "csv" else XLSX,
+        headers={
+            "Content-Disposition": f'attachment; filename="{export_filename(data.file_format)}"'
+        },
     )
 
 

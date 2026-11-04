@@ -3,7 +3,8 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-
+import csv
+import io
 from openpyxl import Workbook, load_workbook
 
 EMPTY_TOKENS = {
@@ -162,3 +163,86 @@ def workbook_bytes(wb: Workbook) -> bytes:
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ======================= CSV =======================
+csv.field_size_limit(1_000_000)
+
+
+def _decode_bytes(raw: bytes) -> str:
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    for enc in ("utf-8-sig", "cp1256"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("ترميز الملف غير مدعوم، احفظه بترميز UTF-8")
+
+
+def _detect_delimiter(text: str, header_row: int) -> str:
+    lines = text.splitlines()
+    line = lines[header_row - 1] if 0 < header_row <= len(lines) else ""
+    counts = {d: line.count(d) for d in (",", ";", "\t", "|")}
+    best = max(counts, key=counts.get)
+    return best if counts[best] else ","
+
+
+def _unescape_cell(c):
+    # يزيل الفاصلة العليا التي يضيفها التصدير لحماية الصيغ
+    if isinstance(c, str) and len(c) > 1 and c[0] == "'" and c[1] in "=@+-\t\r":
+        return c[1:]
+    return c
+
+
+def read_csv(path: Path, header_row: int, max_rows: int):
+    text = _decode_bytes(path.read_bytes())
+    reader = csv.reader(
+        io.StringIO(text, newline=""), delimiter=_detect_delimiter(text, header_row)
+    )
+    headers = None
+    rows = []
+    try:
+        for idx, row in enumerate(reader, start=1):
+            if idx < header_row:
+                continue
+            if idx == header_row:
+                headers = [clean_cell(c) for c in row]
+                continue
+            if all(clean_cell(c) is None for c in row):
+                continue
+            rows.append((idx, [_unescape_cell(c) for c in row]))
+            if len(rows) > max_rows:
+                raise ValueError(f"عدد الصفوف يتجاوز الحد المسموح ({max_rows})")
+    except csv.Error:
+        raise ValueError("ملف CSV غير صالح (تنسيق الاقتباس أو الفواصل)")
+    if headers is None or all(h is None for h in headers):
+        raise ValueError("لم أجد صف العناوين، تحقق من رقم صف العناوين")
+    return headers, rows
+
+
+def read_table(path: Path, sheet_name: str | None, header_row: int, max_rows: int):
+    if path.suffix.lower() == ".csv":
+        return read_csv(path, header_row, max_rows)
+    return read_sheet(path, sheet_name, header_row, max_rows)
+
+
+def iter_source_rows(path: Path, sheet_name: str | None, header_row: int):
+    """يمر على كل صفوف الملف الأصلي (xlsx أو csv) كـ (رقم الصف، القيم)."""
+    if path.suffix.lower() == ".csv":
+        text = _decode_bytes(path.read_bytes())
+        reader = csv.reader(
+            io.StringIO(text, newline=""),
+            delimiter=_detect_delimiter(text, header_row),
+        )
+        for idx, row in enumerate(reader, start=1):
+            yield idx, list(row)
+        return
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws = wb[sheet_name] if sheet_name else wb.worksheets[0]
+        ws.reset_dimensions()
+        for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            yield idx, list(row)
+    finally:
+        wb.close()

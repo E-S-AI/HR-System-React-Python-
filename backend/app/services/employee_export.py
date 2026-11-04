@@ -24,6 +24,8 @@ from app.models import (
 from app.schemas.exports import EmployeeExportFilters
 from app.services.excel_utils import workbook_bytes
 from app.services.scope import descendant_ids, get_scope
+import csv
+import io
 
 BATCH = 2000
 MAX_EXPORT_ROWS = 50_000
@@ -329,12 +331,33 @@ def build_workbook(columns: list[ExportColumn], rows: list[list]) -> bytes:
         ws.append([_safe(ws, v) for v in row])
     return workbook_bytes(wb)
 
+_NUMERIC_LIKE = re.compile(r"^[+-]?[\d\s().\-]+$")
+
+
+def _csv_cell(v):
+    if isinstance(v, str):
+        v = _BAD_XML.sub("", v)
+        if v and (v[0] in "=@\t\r" or (v[0] in "+-" and not _NUMERIC_LIKE.match(v))):
+            return "'" + v  # يمنع تفسيرها كصيغة عند فتح الملف في Excel
+    return v
+
+
+def build_csv(columns: list[ExportColumn], rows: list[list], delimiter: str = ",") -> bytes:
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, delimiter=delimiter, lineterminator="\r\n")
+    writer.writerow([c.label for c in columns])
+    for row in rows:
+        writer.writerow([_csv_cell(v) for v in row])
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
 
 async def export_employees(
     db: AsyncSession,
     actor: User,
     filters: EmployeeExportFilters,
     column_keys: list[str] | None,
+    file_format: str = "xlsx",
+    delimiter: str = ",",
 ) -> bytes:
     columns = resolve_columns(column_keys)
     conds = await build_conditions(db, actor, filters)
@@ -347,13 +370,19 @@ async def export_employees(
     async with _slots:
         ctx = await load_ctx(db)
         rows = await fetch_rows(db, conds, columns, ctx)
-        data = await asyncio.to_thread(build_workbook, columns, rows)
+        if file_format == "csv":
+            data = await asyncio.to_thread(build_csv, columns, rows, delimiter)
+        else:
+            data = await asyncio.to_thread(build_workbook, columns, rows)
 
     db.add(
         ExportLog(
             exported_by_user_id=actor.id,
             module_name="EMPLOYEES",
-            applied_filters=filters.model_dump(mode="json", exclude_none=True),
+            applied_filters={
+                **filters.model_dump(mode="json", exclude_none=True),
+                "file_format": file_format,
+            },
             selected_columns=[c.key for c in columns],
             exported_rows_count=len(rows),
         )
@@ -362,5 +391,5 @@ async def export_employees(
     return data
 
 
-def export_filename() -> str:
-    return f"employees_{datetime.now():%Y%m%d_%H%M}.xlsx"
+def export_filename(ext: str = "xlsx") -> str:
+    return f"employees_{datetime.now():%Y%m%d_%H%M}.{ext}"

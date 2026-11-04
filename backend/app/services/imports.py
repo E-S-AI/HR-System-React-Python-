@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 from sqlalchemy import delete, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,17 +13,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models import ImportJob, ImportJobError, User
 from app.services.employee_import import analyze, insert_valid
-from app.services.excel_utils import put_cell, workbook_bytes
+from app.services.excel_utils import iter_source_rows, put_cell, workbook_bytes
 from app.services.users import is_admin
 
 logger = logging.getLogger(__name__)
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_ERRORS_STORED = 20_000
+SUFFIXES = (".xlsx", ".csv")
 
 
-def job_file(job_id: int) -> Path:
-    return Path(settings.upload_dir) / "imports" / f"{job_id}.xlsx"
+def job_file(job_id: int, suffix: str = ".xlsx") -> Path:
+    return Path(settings.upload_dir) / "imports" / f"{job_id}{suffix}"
+
+
+def find_job_file(job_id: int) -> Path | None:
+    for s in SUFFIXES:
+        p = job_file(job_id, s)
+        if p.exists():
+            return p
+    return None
 
 
 def _write_file(path: Path, content: bytes) -> None:
@@ -81,12 +90,15 @@ async def create_preview(
     sheet_name: str | None,
     header_row: int,
 ) -> ImportJob:
-    if not filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=422, detail="الملف يجب أن يكون بصيغة xlsx")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in SUFFIXES:
+        raise HTTPException(status_code=422, detail="الملف يجب أن يكون بصيغة xlsx أو csv")
     if not content:
         raise HTTPException(status_code=422, detail="الملف فارغ")
     if len(content) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="حجم الملف يتجاوز 10 ميغابايت")
+    if suffix == ".csv":
+        sheet_name = None
 
     digest = hashlib.sha256(content).hexdigest()
     done = await db.scalar(
@@ -113,7 +125,7 @@ async def create_preview(
     db.add(job)
     await db.flush()
     job_id = job.id
-    path = job_file(job_id)
+    path = job_file(job_id, suffix)
     try:
         await asyncio.to_thread(_write_file, path, content)
         result = await analyze(db, path, sheet_name, header_row, actor)
@@ -141,8 +153,8 @@ async def commit_import(db: AsyncSession, actor: User, job_id: int) -> ImportJob
         raise HTTPException(
             status_code=409, detail=f"لا يمكن اعتماد هذه العملية (حالتها: {job.status})"
         )
-    path = job_file(job.id)
-    if not path.exists():
+    path = find_job_file(job.id)
+    if path is None:
         await db.rollback()
         raise HTTPException(status_code=410, detail="ملف الاستيراد غير موجود، أعد رفعه")
     content = await asyncio.to_thread(path.read_bytes)
@@ -183,28 +195,22 @@ async def commit_import(db: AsyncSession, actor: User, job_id: int) -> ImportJob
 
 
 def _error_workbook(path: Path, sheet_name, header_row: int, by_row: dict) -> bytes:
-    src = load_workbook(path, read_only=True, data_only=True)
-    try:
-        ws_src = src[sheet_name] if sheet_name else src.worksheets[0]
-        ws_src.reset_dimensions()
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "الأخطاء"
-        ws.sheet_view.rightToLeft = True
-        out = 1
-        for idx, row in enumerate(ws_src.iter_rows(values_only=True), start=1):
-            if idx == header_row:
-                vals = list(row) + ["أخطاء الصف (يُتجاهل عند إعادة الرفع)"]
-            elif idx in by_row:
-                vals = list(row) + [" | ".join(by_row[idx])]
-            else:
-                continue
-            for c, v in enumerate(vals, start=1):
-                put_cell(ws, out, c, v)
-            out += 1
-        return workbook_bytes(wb)
-    finally:
-        src.close()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "الأخطاء"
+    ws.sheet_view.rightToLeft = True
+    out = 1
+    for idx, row in iter_source_rows(path, sheet_name, header_row):
+        if idx == header_row:
+            vals = list(row) + ["أخطاء الصف (يُتجاهل عند إعادة الرفع)"]
+        elif idx in by_row:
+            vals = list(row) + [" | ".join(by_row[idx])]
+        else:
+            continue
+        for c, v in enumerate(vals, start=1):
+            put_cell(ws, out, c, v)
+        out += 1
+    return workbook_bytes(wb)
 
 
 async def build_error_file(db: AsyncSession, actor: User, job_id: int) -> bytes:
@@ -225,8 +231,8 @@ async def build_error_file(db: AsyncSession, actor: User, job_id: int) -> bytes:
     by_row: dict[int, list[str]] = {}
     for r, col, msg in rows:
         by_row.setdefault(r, []).append(f"{col}: {msg}" if col else msg)
-    path = job_file(job.id)
-    if not path.exists():
+    path = find_job_file(job.id)
+    if path is None:
         raise HTTPException(status_code=410, detail="ملف الاستيراد الأصلي غير موجود")
     header_row = (job.column_mapping or {}).get("header_row", 1)
     return await asyncio.to_thread(_error_workbook, path, job.sheet_name, header_row, by_row)

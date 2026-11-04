@@ -11,6 +11,7 @@ from app.schemas.imports import ImportErrorRead, ImportJobRead, ImportPreview
 from app.services import imports as svc
 from app.services.employee_import import build_template
 from app.services.users import is_admin
+from app.services.employee_import import build_template, build_template_csv
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
@@ -27,8 +28,17 @@ def _xlsx(data: bytes, filename: str) -> Response:
 
 
 @router.get("/employees/template")
-async def employees_template(_: User = Depends(hr_or_admin)):
+async def employees_template(
+    format: Literal["xlsx", "csv"] = "xlsx", _: User = Depends(hr_or_admin)
+):
+    if format == "csv":
+        return Response(
+            content=build_template_csv(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="employees_template.csv"'},
+        )
     return _xlsx(await asyncio.to_thread(build_template), "employees_template.xlsx")
+
 
 
 @router.post("/employees", response_model=ImportPreview, status_code=201)
