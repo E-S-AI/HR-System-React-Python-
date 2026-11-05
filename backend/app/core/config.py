@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     encryption_key: str
     access_token_minutes: int = 30
     upload_dir: str = "uploads"
+    timezone: str = "Asia/Damascus"
 
 
 settings = Settings()

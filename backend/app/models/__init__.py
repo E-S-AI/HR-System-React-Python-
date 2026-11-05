@@ -10,6 +10,7 @@ from app.models.leave import (
     LeaveType,
     ServiceLeaveTier,
 )
+from app.models.leave_request import LeaveApprovalLog, LeaveRequest
 from app.models.org import OrgUnit, UserScope
 from app.models.role import Role, user_roles
 from app.models.user import User
@@ -24,7 +25,9 @@ __all__ = [
     "Governorate",
     "ImportJob",
     "ImportJobError",
+    "LeaveApprovalLog",
     "LeaveBalance",
+    "LeaveRequest",
     "LeaveTransaction",
     "LeaveType",
     "OrgUnit",

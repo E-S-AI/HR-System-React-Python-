@@ -97,7 +97,10 @@ class LeaveTransaction(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     balance_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("leave_balances.id"))
     # المفتاحان الأجنبيان يُضافان عند إنشاء جدولي leave_requests و attendance_records
-    leave_request_id: Mapped[int | None] = mapped_column(BigInteger)
+        # مفتاح attendance_record_id الأجنبي يُضاف عند إنشاء جدول البصمة
+    leave_request_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("leave_requests.id")
+    )
     attendance_record_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     transaction_type: Mapped[str] = mapped_column(String(40))
     delta_minutes: Mapped[int] = mapped_column(Integer)
