@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field , field_validator
 
 
 class LoginRequest(BaseModel):
@@ -6,6 +6,14 @@ class LoginRequest(BaseModel):
     password: str
     pin: str | None = Field(default=None, pattern=r"^\d{6}$")
     otp: str | None = Field(default=None, pattern=r"^\d{6}$")
+
+    @field_validator("pin", "otp", mode="before")
+    @classmethod
+    def blank_to_none(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
 
 
 class TokenResponse(BaseModel):

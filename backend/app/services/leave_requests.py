@@ -23,8 +23,8 @@ from app.models import (
     WorkSchedule,
 )
 from app.schemas.leave_request import LeaveRequestCreate, LeaveRequestRead
-from app.services.leave_balances import visible_employee
 from app.services.holidays import load_holidays
+from app.services.leave_balances import visible_employee
 from app.services.leave_rules import (
     add_months,
     admin_minutes,
@@ -39,7 +39,6 @@ from app.services.leave_rules import (
 )
 from app.services.scope import get_scope
 from app.services.users import is_privileged
-from backend.app.services import holidays
 
 logger = logging.getLogger(__name__)
 
