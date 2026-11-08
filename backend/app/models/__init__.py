@@ -3,6 +3,7 @@ from app.models.employee import Employee
 from app.models.employee_extra import EmployeeQualification, EmployeeTraining
 from app.models.export_log import ExportLog
 from app.models.governorate import Governorate
+from app.models.holiday import PublicHoliday
 from app.models.imports import ImportJob, ImportJobError
 from app.models.leave import (
     LeaveBalance,
@@ -31,6 +32,7 @@ __all__ = [
     "LeaveTransaction",
     "LeaveType",
     "OrgUnit",
+    "PublicHoliday",
     "Role",
     "ServiceLeaveTier",
     "User",

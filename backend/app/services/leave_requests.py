@@ -24,16 +24,22 @@ from app.models import (
 )
 from app.schemas.leave_request import LeaveRequestCreate, LeaveRequestRead
 from app.services.leave_balances import visible_employee
+from app.services.holidays import load_holidays
 from app.services.leave_rules import (
+    add_months,
     admin_minutes,
+    charged_hourly_minutes,
+    consecutive_run_over_limit,
     is_too_old,
     is_workday,
     minutes_between,
     overlaps,
     schedule_for,
+    working_days,
 )
 from app.services.scope import get_scope
 from app.services.users import is_privileged
+from backend.app.services import holidays
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +97,11 @@ def _plan_request(lt: LeaveType, data: LeaveRequestCreate, schedules) -> dict:
 
     if lt.code == "ADMIN":
         try:
-            minutes, days = admin_minutes(schedules, start, end)
+            minutes, days = admin_minutes(schedules, start, end,holidays)
         except ValueError as exc:
             raise _bad(409, str(exc))
         if not days:
-            raise _bad(422, "كل أيام الفترة المختارة عطلة أسبوعية")
+            raise _bad(422, "كل أيام الفترة المختارة عطلة (أسبوعية أو رسمية)")
         return {
             "start": days[0],
             "end": days[-1],
@@ -103,6 +109,7 @@ def _plan_request(lt: LeaveType, data: LeaveRequestCreate, schedules) -> dict:
             "end_time": schedule_for(schedules, days[-1]).official_end_time,
             "minutes": minutes,
             "days": Decimal(len(days)),
+            "day_list": days,
         }
 
     if lt.code == "HOURLY":
@@ -123,10 +130,14 @@ def _plan_request(lt: LeaveType, data: LeaveRequestCreate, schedules) -> dict:
                 "يجب أن تقع الإجازة الساعية ضمن ساعات الدوام "
                 f"({sch.official_start_time:%H:%M} - {sch.official_end_time:%H:%M})",
             )
-        minutes = minutes_between(st, et)
         lo, hi = lt.min_duration_minutes, lt.max_duration_minutes
-        if minutes <= 0 or (lo and minutes < lo) or (hi and minutes > hi):
-            raise _bad(422, f"مدة الإجازة الساعية يجب أن تكون بين {lo} و{hi} دقيقة")
+        try:
+            # أقل من ساعة تُحسب ساعة كاملة، وأكثر من ساعتين مرفوض
+            minutes = charged_hourly_minutes(minutes_between(st, et), lo, hi)
+        except ValueError as exc:
+            if str(exc) == "over_max":
+                raise _bad(422, f"الإجازة الساعية لا تزيد عن {hi} دقيقة (ساعتان)")
+            raise _bad(422, str(exc))
         return {
             "start": start,
             "end": end,
@@ -225,8 +236,8 @@ async def create_request(db: AsyncSession, user: User, data: LeaveRequestCreate)
         raise _bad(403, "حسابك غير مرتبط بسجل موظف")
 
     # قفل صف الموظف يسلسل طلباته المتزامنة (يمنع تجاوز الرصيد والتداخل بطلبين معاً)
-    await db.execute(
-        select(Employee.id).where(Employee.id == user.employee_id).with_for_update(key_share=True)
+    employee = await db.scalar(
+        select(Employee).where(Employee.id == user.employee_id).with_for_update(key_share=True)
     )
 
     lt = await db.scalar(
@@ -238,7 +249,18 @@ async def create_request(db: AsyncSession, user: User, data: LeaveRequestCreate)
     start = data.start_date
     end = data.end_date or start
     schedules = await _schedules_between(db, start, end)
-    plan = _plan_request(lt, data, schedules)
+    holidays = await load_holidays(db, start - timedelta(days=60), end + timedelta(days=60))
+    plan = _plan_request(lt, data, schedules, holidays)
+    # المتعاقد لا يحق له إجازة إدارية أو ساعية في أول أشهر من بدء العمل بالدولة
+    if lt.deducts_balance and employee.permanent_or_contract == "متعاقد":
+        months = settings.contract_admin_leave_wait_months
+        eligible_from = add_months(employee.state_start_date, months)
+        if plan["start"] < eligible_from:
+            raise _bad(
+                422,
+                f"لا يحق للموظف المتعاقد إجازة إدارية أو ساعية خلال أول {months} أشهر "
+                f"من بدء العمل بالدولة، ويبدأ استحقاقه بتاريخ {eligible_from.isoformat()}",
+            )
 
     tz = local_tz()
     now_local = datetime.now(tz)
@@ -267,6 +289,32 @@ async def create_request(db: AsyncSession, user: User, data: LeaveRequestCreate)
         o_start, o_end = _window(other)
         if overlaps(new_start, new_end, o_start, o_end):
             raise _bad(409, f"يتعارض مع طلبك رقم {other.id} (الحالة: {other.status})")
+
+    # الإدارية: لا أكثر من N أيام عمل متتالية (مع احتساب الطلبات المجاورة)
+    if lt.code == "ADMIN":
+        limit = settings.max_consecutive_admin_days
+        existing = await db.scalars(
+            select(LeaveRequest)
+            .join(LeaveType, LeaveType.id == LeaveRequest.leave_type_id)
+            .where(
+                LeaveRequest.employee_id == user.employee_id,
+                LeaveType.code == "ADMIN",
+                LeaveRequest.status.in_(ACTIVE_STATUSES),
+                LeaveRequest.start_date <= plan["end"] + timedelta(days=14),
+                LeaveRequest.end_date >= plan["start"] - timedelta(days=14),
+            )
+        )
+        old_days = [
+            d for r in existing.all() for d in working_days(r.start_date, r.end_date, holidays)
+        ]
+        over = consecutive_run_over_limit(plan["day_list"], old_days, limit, holidays)
+        if over is not None:
+            first_day, length = over
+            raise _bad(
+                422,
+                f"لا يجوز أن تزيد الإجازة الإدارية عن {limit} أيام عمل متتالية "
+                f"(مع احتساب طلباتك المجاورة تصبح {length} أيام ابتداءً من {first_day.isoformat()})",
+            )
 
     balance = None
     minutes = plan["minutes"]

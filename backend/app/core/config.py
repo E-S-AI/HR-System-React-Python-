@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     upload_dir: str = "uploads"
     timezone: str = "Asia/Damascus"
-
+    max_consecutive_admin_days: int = 3
+    contract_admin_leave_wait_months: int = 3
 
 settings = Settings()

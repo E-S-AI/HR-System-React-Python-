@@ -1,11 +1,14 @@
+import calendar
 from datetime import date, datetime, time, timedelta
 
 # الجمعة والسبت عطلة أسبوعية (الاثنين = 0)
 WEEKEND_WEEKDAYS = frozenset({4, 5})
+NO_HOLIDAYS: frozenset = frozenset()
 
 
-def is_workday(d: date) -> bool:
-    return d.weekday() not in WEEKEND_WEEKDAYS
+def is_workday(d: date, holidays=NO_HOLIDAYS) -> bool:
+    """يوم عمل: ليس عطلة أسبوعية وليس عطلة رسمية."""
+    return d.weekday() not in WEEKEND_WEEKDAYS and d not in holidays
 
 
 def iter_days(start: date, end: date):
@@ -15,8 +18,21 @@ def iter_days(start: date, end: date):
         d += timedelta(days=1)
 
 
-def working_days(start: date, end: date) -> list[date]:
-    return [d for d in iter_days(start, end) if is_workday(d)]
+def working_days(start: date, end: date, holidays=NO_HOLIDAYS) -> list[date]:
+    return [d for d in iter_days(start, end) if is_workday(d, holidays)]
+
+
+def next_workday(d: date, holidays=NO_HOLIDAYS) -> date:
+    d += timedelta(days=1)
+    while not is_workday(d, holidays):
+        d += timedelta(days=1)
+    return d
+
+
+def add_months(d: date, months: int) -> date:
+    y, m0 = divmod(d.year * 12 + (d.month - 1) + months, 12)
+    m = m0 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
 
 
 def time_to_minutes(t: time) -> int:
@@ -45,8 +61,8 @@ def schedule_for(schedules, day: date):
     return None
 
 
-def admin_minutes(schedules, start: date, end: date) -> tuple[int, list[date]]:
-    days = working_days(start, end)
+def admin_minutes(schedules, start: date, end: date, holidays=NO_HOLIDAYS) -> tuple[int, list[date]]:
+    days = working_days(start, end, holidays)
     total = 0
     for d in days:
         s = schedule_for(schedules, d)
@@ -54,3 +70,33 @@ def admin_minutes(schedules, start: date, end: date) -> tuple[int, list[date]]:
             raise ValueError(f"لا يوجد جدول دوام ساري بتاريخ {d.isoformat()}")
         total += s.workday_minutes
     return total, days
+
+
+def consecutive_run_over_limit(new_days, existing_days, limit: int, holidays=NO_HOLIDAYS):
+    """أيام العمل المتتالية: العطلة الأسبوعية والرسمية لا تقطع التتابع.
+    يرجع (أول يوم في السلسلة، طولها) لأول سلسلة تضم يوماً جديداً وتتجاوز الحد، أو None."""
+    new_set = set(new_days)
+    runs: list[list[date]] = []
+    run: list[date] = []
+    for d in sorted(new_set | set(existing_days)):
+        if run and next_workday(run[-1], holidays) == d:
+            run.append(d)
+        else:
+            if run:
+                runs.append(run)
+            run = [d]
+    if run:
+        runs.append(run)
+    for r in runs:
+        if len(r) > limit and any(d in new_set for d in r):
+            return r[0], len(r)
+    return None
+
+
+def charged_hourly_minutes(actual: int, lo: int | None, hi: int | None) -> int:
+    """أقل من الحد الأدنى يُحسب الحد الأدنى. أكثر من الحد الأقصى مرفوض (ValueError)."""
+    if actual <= 0:
+        raise ValueError("وقت النهاية يجب أن يكون بعد وقت البداية")
+    if hi and actual > hi:
+        raise ValueError("over_max")
+    return max(actual, lo) if lo else actual
