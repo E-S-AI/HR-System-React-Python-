@@ -1,5 +1,6 @@
 from app.models.appointment_category import AppointmentCategory
 from app.models.employee import Employee
+from app.models.employee_change_log import EmployeeChangeLog
 from app.models.employee_extra import EmployeeQualification, EmployeeTraining
 from app.models.export_log import ExportLog
 from app.models.governorate import Governorate
@@ -39,4 +40,5 @@ __all__ = [
     "UserScope",
     "WorkSchedule",
     "user_roles",
+    "EmployeeChangeLog",
 ]

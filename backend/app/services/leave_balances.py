@@ -269,3 +269,54 @@ async def adjust(
     await db.commit()
     await db.refresh(balance)
     return to_read(balance, admin)
+async def recalc_balances_from_year(
+    db: AsyncSession, employee: Employee, actor_id: int | None, from_year: int
+) -> int:
+    """يعيد احتساب أرصدة الإجازة الإدارية من سنة معينة فصاعداً (السنوات السابقة تاريخية لا تُمس)."""
+    admin = await _admin_type(db)
+    tiers = await _tiers(db, admin.id)
+    balances = (
+        await db.scalars(
+            select(LeaveBalance)
+            .where(
+                LeaveBalance.employee_id == employee.id,
+                LeaveBalance.leave_type_id == admin.id,
+                LeaveBalance.year >= from_year,
+            )
+            .order_by(LeaveBalance.year)
+            .with_for_update()
+        )
+    ).all()
+    changed = 0
+    for b in balances:
+        ref = date(b.year, 1, 1)
+        tier = pick_tier(tiers, completed_years(employee.state_start_date, ref))
+        if tier is None:
+            raise HTTPException(status_code=409, detail="شرائح الخدمة لا تغطي هذه المدة")
+        expected = tier.entitled_days * b.minutes_per_day
+        granted = await db.scalar(
+            select(func.coalesce(func.sum(LeaveTransaction.delta_minutes), 0)).where(
+                LeaveTransaction.balance_id == b.id,
+                LeaveTransaction.transaction_type == "ANNUAL_GRANT",
+            )
+        )
+        diff = expected - granted
+        b.service_years_snapshot = service_years_decimal(employee.state_start_date, ref)
+        if diff != 0:
+            if b.entitled_minutes + diff < 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"إعادة احتساب رصيد {b.year} تجعل الاستحقاق سالباً، راجع الحركات",
+                )
+            db.add(
+                LeaveTransaction(
+                    balance_id=b.id,
+                    transaction_type="ANNUAL_GRANT",
+                    delta_minutes=diff,
+                    notes="إعادة احتساب الشريحة بعد تعديل تاريخ بدء العمل بالدولة",
+                    created_by_user_id=actor_id,
+                )
+            )
+            b.entitled_minutes += diff
+            changed += 1
+    return changed
