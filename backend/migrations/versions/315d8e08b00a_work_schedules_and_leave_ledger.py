@@ -112,6 +112,7 @@ def upgrade() -> None:
         "ALTER TABLE work_schedules ADD CONSTRAINT ex_work_schedules_no_overlap "
         "EXCLUDE USING gist (daterange(effective_from_date, effective_to_date, '[]') WITH &&)"
     )
+    op.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
     # ### end Alembic commands ###
 
 

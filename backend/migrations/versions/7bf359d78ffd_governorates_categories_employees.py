@@ -122,7 +122,7 @@ def downgrade() -> None:
     op.drop_table('employees')
     op.execute("DROP SEQUENCE employee_global_serial_seq")
     op.drop_table('governorates_matrix')
-    op.execute("DROP SEQUENCE employee_global_serial_seq")
+    
     op.drop_table('appointment_categories_matrix')
-    op.execute("DROP SEQUENCE employee_global_serial_seq")
+
     # ### end Alembic commands ###

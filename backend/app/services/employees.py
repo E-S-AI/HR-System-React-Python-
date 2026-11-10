@@ -14,6 +14,7 @@ from app.models import (
     Governorate,
     OrgUnit,
     User,
+    EmployeeAssignment,
 )
 from app.schemas.employee import (
     EmployeeCreate,
@@ -44,6 +45,11 @@ SENSITIVE = {
     "termination_date", "governorate_code", "biometric_code",
 }
 NAME_FIELDS = {"first_name", "father_name", "last_name"}
+
+ASSIGNMENT_FIELDS = {
+    "assignment_start_date", "assignment_end_date",
+    "assignment_duration", "assignment_renewal_count",
+}
 
 
 def _bad(status: int, detail: str) -> HTTPException:
@@ -172,7 +178,13 @@ async def create_employee(
         select(User.id).where(User.phone_number == data.phone_number)
     ):
         raise _bad(409, "رقم الهاتف مستخدم لحساب دخول آخر، لا يمكن إنشاء الحساب بهذا الرقم")
-
+    if (
+        data.assignment_start_date is not None
+        and data.assignment_end_date is not None
+        and data.assignment_end_date < data.assignment_start_date
+    ):
+        raise _bad(422, "تاريخ انتهاء التكليف قبل تاريخ بدايته")
+    
     serial = await db.scalar(text("select nextval('employee_global_serial_seq')"))
     formatted = f"{serial:04d}"
     code = (
@@ -210,6 +222,19 @@ async def create_employee(
         db.add(EmployeeQualification(employee_id=employee.id, created_by_user_id=actor.id, **q.model_dump()))
     for t in data.trainings:
         db.add(EmployeeTraining(employee_id=employee.id, created_by_user_id=actor.id, **t.model_dump()))
+    if data.assignment_start_date is not None:
+        db.add(
+            EmployeeAssignment(
+                employee_id=employee.id,
+                sequence_number=1,
+                action_type="INITIAL_ASSIGNMENT",
+                start_date=data.assignment_start_date,
+                end_date=data.assignment_end_date,
+                duration_text=data.assignment_duration,
+                is_current=True,
+                created_by_hr_id=actor.id,
+            )
+        )
     db.add(
         EmployeeChangeLog(
             employee_id=employee.id,
@@ -268,6 +293,10 @@ async def patch_employee(
     fields = set(patch.model_fields_set) - {"change_reason"}
     if not fields:
         raise _bad(422, "لم تُرسل أي حقول للتعديل")
+    if fields & ASSIGNMENT_FIELDS:
+        raise _bad(
+            422, "حقول التكليف تُدار من مسار التكليفات: /employees/{id}/assignments"
+        )
     for f in fields & NOT_NULL:
         if getattr(patch, f) is None:
             raise _bad(422, f"لا يمكن إفراغ الحقل ({f})")

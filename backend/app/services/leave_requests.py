@@ -89,14 +89,14 @@ def _bad(status: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status, detail=detail)
 
 
-def _plan_request(lt: LeaveType, data: LeaveRequestCreate, schedules) -> dict:
+def _plan_request(lt: LeaveType, data: LeaveRequestCreate, schedules, holidays) -> dict:
     """يحسب التواريخ والأوقات والمدة حسب نوع الطلب."""
     start = data.start_date
     end = data.end_date or start
 
     if lt.code == "ADMIN":
         try:
-            minutes, days = admin_minutes(schedules, start, end,holidays)
+            minutes, days = admin_minutes(schedules, start, end, holidays)
         except ValueError as exc:
             raise _bad(409, str(exc))
         if not days:
@@ -114,8 +114,8 @@ def _plan_request(lt: LeaveType, data: LeaveRequestCreate, schedules) -> dict:
     if lt.code == "HOURLY":
         if end != start:
             raise _bad(422, "الإجازة الساعية تكون ضمن يوم واحد")
-        if not is_workday(start):
-            raise _bad(422, "اليوم المختار عطلة أسبوعية")
+        if not is_workday(start, holidays):
+            raise _bad(422, "اليوم المختار عطلة أسبوعية أو رسمية")
         sch = schedule_for(schedules, start)
         if sch is None:
             raise _bad(409, f"لا يوجد جدول دوام ساري بتاريخ {start.isoformat()}")

@@ -17,10 +17,12 @@ from app.models.org import OrgUnit, UserScope
 from app.models.role import Role, user_roles
 from app.models.user import User
 from app.models.work_schedule import WorkSchedule
+from app.models.assignment import EmployeeAssignment
 
 __all__ = [
     "AppointmentCategory",
     "Employee",
+    "EmployeeAssignment",
     "EmployeeQualification",
     "EmployeeTraining",
     "ExportLog",
