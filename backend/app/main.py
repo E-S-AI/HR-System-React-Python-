@@ -14,6 +14,7 @@ from app.api.exports import router as exports_router
 from app.api.leave_balances import router as leave_balances_router
 from app.api.work_schedules import router as work_schedules_router
 from app.api.leave_requests import router as leave_requests_router
+from app.api.leave_forms import router as leave_forms_router
 from app.api.public_holidays import router as public_holidays_router
 from app.api.dashboard import router as dashboard_router
 from app.api.employee_files import router as employee_files_router
@@ -39,8 +40,10 @@ app.include_router(exports_router)
 app.include_router(work_schedules_router)
 app.include_router(leave_balances_router)
 app.include_router(leave_requests_router)
+app.include_router(leave_forms_router)
 app.include_router(public_holidays_router)
 app.include_router(dashboard_router)
+
 
 
 @app.get("/health")

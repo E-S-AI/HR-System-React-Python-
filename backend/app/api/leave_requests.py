@@ -1,7 +1,9 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_roles
@@ -11,6 +13,7 @@ from app.schemas.leave_request import (
     ApprovalLogRead,
     ApproveRequest,
     ExpireResult,
+    HRDirectDecisionCreate,
     LeaveRequestCreate,
     LeaveRequestRead,
     RejectRequest,
@@ -61,6 +64,37 @@ async def hr_list(
     return await svc.list_for_hr(
         db, actor, employee_id, status, leave_type_code, date_from, date_to, skip, limit
     )
+
+
+@router.post("/hr-decisions", response_model=LeaveRequestRead, status_code=201)
+async def create_hr_decision(
+    employee_id: int = Form(...),
+    leave_type_code: str = Form(...),
+    start_date: date = Form(...),
+    end_date: date = Form(...),
+    hr_decision_number: str = Form(...),
+    reason: str | None = Form(None),
+    notes: str | None = Form(None),
+    file: UploadFile = File(..., description="صورة القرار الورقي (JPG/PNG/PDF)"),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(hr_or_admin),
+):
+    """تسجيل إجازة بقرار (UNPAID, SICK, MARRIAGE, DEATH, HAJJ) معتمدة مباشرة دون خصم."""
+    try:
+        data = HRDirectDecisionCreate(
+            employee_id=employee_id,
+            leave_type_code=leave_type_code,
+            start_date=start_date,
+            end_date=end_date,
+            hr_decision_number=hr_decision_number,
+            reason=reason,
+            notes=notes,
+        )
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors(include_url=False))
+    content = await file.read(svc.MAX_PAPER_BYTES + 1)
+    request_id = await svc.create_hr_decision(db, actor, data, content)
+    return await svc.fetch_read(db, request_id)
 
 
 @router.post("/maintenance/expire-overdue", response_model=ExpireResult)

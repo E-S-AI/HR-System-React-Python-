@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+uploads/
+migrations/versions/
+*.xlsx
+*.csv
+*.pyc
+locustfile.py
+make_test_xlsx.py

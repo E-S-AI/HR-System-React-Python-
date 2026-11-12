@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -22,7 +22,12 @@ from app.models import (
     User,
     WorkSchedule,
 )
-from app.schemas.leave_request import LeaveRequestCreate, LeaveRequestRead
+from app.schemas.leave_request import (
+    DECISION_LEAVE_TYPES,
+    HRDirectDecisionCreate,
+    LeaveRequestCreate,
+    LeaveRequestRead,
+)
 from app.services.holidays import load_holidays
 from app.services.leave_balances import visible_employee
 from app.services.leave_rules import (
@@ -538,6 +543,17 @@ def paper_abs(rel: str) -> Path:
     return path
 
 
+def _validate_paper(content: bytes) -> str:
+    if not content:
+        raise _bad(422, "الملف فارغ")
+    if len(content) > MAX_PAPER_BYTES:
+        raise _bad(413, "حجم الملف يتجاوز 8 ميغابايت")
+    ext = detect_paper_type(content)
+    if ext is None:
+        raise _bad(422, "الملف يجب أن يكون صورة (JPG أو PNG) أو PDF")
+    return ext
+
+
 def _write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
@@ -568,14 +584,7 @@ async def upload_paper(
         await db.commit()
         raise _bad(409, "انتهت مهلة رفع الورقة (72 ساعة) وتم رفض الطلب آلياً")
 
-    if not content:
-        raise _bad(422, "الملف فارغ")
-    if len(content) > MAX_PAPER_BYTES:
-        raise _bad(413, "حجم الملف يتجاوز 8 ميغابايت")
-    ext = detect_paper_type(content)
-    if ext is None:
-        raise _bad(422, "الملف يجب أن يكون صورة (JPG أو PNG) أو PDF")
-
+    ext = _validate_paper(content)
     rel = f"leave_papers/{req.id}_{uuid.uuid4().hex[:12]}{ext}"
     path = paper_abs(rel)
     await asyncio.to_thread(_write_bytes, path, content)
@@ -666,3 +675,104 @@ async def auto_reject_overdue(db: AsyncSession) -> int:
         await db.commit()
         total += len(rows)
     return total
+
+
+# ------------------------------------------------------------------ قرارات الموارد البشرية المباشرة
+async def create_hr_decision(
+    db: AsyncSession, actor: User, data: HRDirectDecisionCreate, content: bytes
+) -> int:
+    """تسجيل إجازة بقرار (بلا أجر، مرضية، زواج، وفاة، حج) معتمدة مباشرة دون خصم من الرصيد."""
+    ext = _validate_paper(content)
+    await visible_employee(db, actor, data.employee_id)  # خارج النطاق => 404
+    if actor.employee_id is not None and actor.employee_id == data.employee_id:
+        raise _bad(403, "لا يمكنك تسجيل قرار إجازة لنفسك")
+
+    # قفل صف الموظف يسلسل الطلبات المتزامنة ويمنع التداخل
+    employee = await db.scalar(
+        select(Employee).where(Employee.id == data.employee_id).with_for_update(key_share=True)
+    )
+    if employee is None:
+        raise _bad(404, "الموظف غير موجود")
+
+    lt = await db.scalar(
+        select(LeaveType).where(LeaveType.code == data.leave_type_code, LeaveType.is_active)
+    )
+    if lt is None or lt.code not in DECISION_LEAVE_TYPES:
+        raise _bad(422, "نوع الإجازة غير متاح")
+
+    start, end = data.start_date, data.end_date
+    schedules = await _schedules_between(db, start, end)
+    holidays = await load_holidays(db, start, end)
+    first_sch, last_sch = schedule_for(schedules, start), schedule_for(schedules, end)
+    start_time = first_sch.official_start_time if first_sch else time(0, 0)
+    end_time = last_sch.official_end_time if last_sch else time(23, 59)
+    # دقائق الدوام المغطاة بالقرار (للتقارير فقط، لا خصم من الرصيد)
+    minutes = 0
+    for d in working_days(start, end, holidays):
+        sch = schedule_for(schedules, d)
+        if sch is not None:
+            minutes += sch.workday_minutes
+
+    new_start = datetime.combine(start, start_time)
+    new_end = datetime.combine(end, end_time)
+    others = await db.scalars(
+        select(LeaveRequest).where(
+            LeaveRequest.employee_id == data.employee_id,
+            LeaveRequest.status.in_(ACTIVE_STATUSES),
+            LeaveRequest.start_date <= end,
+            LeaveRequest.end_date >= start,
+        )
+    )
+    for other in others.all():
+        o_start, o_end = _window(other)
+        if overlaps(new_start, new_end, o_start, o_end):
+            raise _bad(
+                409,
+                f"يتعارض مع الطلب رقم {other.id} (الحالة: {other.status})، "
+                "عالجه أولاً ثم سجّل القرار",
+            )
+
+    now = utcnow()
+    req = LeaveRequest(
+        employee_id=data.employee_id,
+        leave_type_id=lt.id,
+        entry_source="HR_DIRECT_DECISION",
+        start_date=start,
+        end_date=end,
+        start_time=start_time,
+        end_time=end_time,
+        duration_days=Decimal((end - start).days + 1),
+        duration_minutes=minutes,
+        reason=data.reason,
+        status="APPROVED",
+        hr_decision_number=data.hr_decision_number,
+        hr_reviewer_id=actor.id,
+        hr_action_at=now,
+        hr_notes=data.notes,
+        attachment_uploaded_at=now,
+        created_by_user_id=actor.id,
+        created_at=now,
+    )
+    db.add(req)
+    await db.flush()
+    request_id = req.id
+
+    rel = f"leave_papers/{request_id}_decision_{uuid.uuid4().hex[:12]}{ext}"
+    path = paper_abs(rel)
+    await asyncio.to_thread(_write_bytes, path, content)
+    try:
+        req.paper_attachment_path = rel
+        comment = f"قرار رقم {data.hr_decision_number}"
+        if data.notes:
+            comment += f" - {data.notes}"
+        _log(db, request_id, actor.id, None, "APPROVED", "HR_DIRECT_DECISION", comment)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        path.unlink(missing_ok=True)
+        raise _bad(409, "تعذّر حفظ القرار بسبب تعارض في البيانات، أعد المحاولة")
+    except Exception:
+        await db.rollback()
+        path.unlink(missing_ok=True)
+        raise
+    return request_id
