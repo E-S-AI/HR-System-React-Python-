@@ -24,6 +24,7 @@ from app.models import (
 from app.schemas.exports import EmployeeExportFilters
 from app.services.excel_utils import workbook_bytes
 from app.services.scope import descendant_ids, get_scope
+from app.services.arabic_search import name_search_conditions
 import csv
 import io
 
@@ -153,16 +154,24 @@ async def build_conditions(db: AsyncSession, actor: User, f: EmployeeExportFilte
     if f.state_start_to:
         conds.append(Employee.state_start_date <= f.state_start_to)
     if f.search:
-        esc = f.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pat = f"%{esc}%"
-        conds.append(
-            or_(
-                Employee.full_name_spaced.ilike(pat, escape="\\"),
+        s = f.search.strip()
+        if s:
+            # للبحث بالاسم العربي: كل كلمة يجب أن تظهر في الاسم (AND بين الكلمات)
+            name_conds = name_search_conditions(s, Employee.full_name_spaced)
+            # للبحث بالرقم الوطني / الكود / الهاتف: ILIKE بسيط كافٍ
+            esc = s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pat = f"%{esc}%"
+            exact_cond = or_(
                 Employee.national_id.ilike(pat, escape="\\"),
                 Employee.employee_code.ilike(pat, escape="\\"),
                 Employee.phone_number.ilike(pat, escape="\\"),
             )
-        )
+            if name_conds:
+                from sqlalchemy import and_
+                # يطابق: (كل كلمات الاسم موجودة) أو (رقم/كود/هاتف يطابق)
+                conds.append(or_(and_(*name_conds), exact_cond))
+            else:
+                conds.append(exact_cond)
     return conds
 
 

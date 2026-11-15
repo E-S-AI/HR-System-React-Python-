@@ -115,9 +115,25 @@ async def get_detail(db: AsyncSession, actor: User, employee_id: int) -> Employe
 
 
 async def list_employees(
-    db: AsyncSession, actor: User, filters: EmployeeExportFilters, skip: int, limit: int
+    db: AsyncSession, actor: User, filters: EmployeeExportFilters,
+    skip: int, limit: int, sort_by: str = "id"
 ) -> list[Employee]:
     conds = await build_conditions(db, actor, filters)
+    if sort_by == "name":
+        # ar-x-icu collation للترتيب الصحيح للأسماء العربية؛
+        # نحاول مرة واحدة فإن لم تكن الـ collation مثبّتة نعود لـ id
+        from sqlalchemy import text as sa_text
+        order = sa_text(
+            'full_name_spaced COLLATE "ar-x-icu"'
+        )
+        try:
+            rows = await db.scalars(
+                select(Employee).where(*conds).order_by(order).offset(skip).limit(limit)
+            )
+            return list(rows.all())
+        except Exception:
+            await db.rollback()
+            # collation غير متاحة: نرتب حسب id كحلّ احتياطي
     rows = await db.scalars(
         select(Employee).where(*conds).order_by(Employee.id).offset(skip).limit(limit)
     )

@@ -2,12 +2,19 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.labels_ar import ASSIGNMENT_ACTION_LABELS_AR, label_for
+from app.core.text import clean_text, to_ascii_digits
+
 
 def _blank(v):
-    if isinstance(v, str):
-        v = v.strip()
-        return v or None
+    v = clean_text(v) if isinstance(v, str) else v
     return v
+
+
+def _blank_digits(v):
+    """نص يُستخدم كرقم (رقم قرار، سنة تخرج...): ننظفه ثم نحوّل أرقامه العربية إلى 0-9."""
+    v = _blank(v)
+    return to_ascii_digits(v) if isinstance(v, str) else v
 
 
 class QualificationPatch(BaseModel):
@@ -20,7 +27,15 @@ class QualificationPatch(BaseModel):
     is_hiring_qualification: bool | None = None
     notes: str | None = Field(default=None, max_length=5000)
 
-    @field_validator("*", mode="before")
+    @field_validator("graduation_year", mode="before")
+    @classmethod
+    def blank_digits(cls, v):
+        return _blank_digits(v)
+
+    @field_validator(
+        "qualification_level", "specialization", "issuing_institution", "notes",
+        mode="before",
+    )
     @classmethod
     def blank_to_none(cls, v):
         return _blank(v)
@@ -35,7 +50,14 @@ class TrainingPatch(BaseModel):
     duration_text: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=5000)
 
-    @field_validator("*", mode="before")
+    @field_validator("course_date", mode="before")
+    @classmethod
+    def blank_digits(cls, v):
+        return _blank_digits(v)
+
+    @field_validator(
+        "course_name", "training_provider", "duration_text", "notes", mode="before"
+    )
     @classmethod
     def blank_to_none(cls, v):
         return _blank(v)
@@ -53,9 +75,13 @@ class AssignmentInput(BaseModel):
     decision_number: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=2000)
 
+    @field_validator("decision_number", mode="before")
+    @classmethod
+    def blank_digits(cls, v):
+        return _blank_digits(v)
+
     @field_validator(
-        "duration_text", "assigned_position_or_unit", "decision_number", "notes",
-        mode="before",
+        "duration_text", "assigned_position_or_unit", "notes", mode="before"
     )
     @classmethod
     def blank_to_none(cls, v):
@@ -75,7 +101,12 @@ class AssignmentEnd(BaseModel):
     decision_number: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("decision_number", "notes", mode="before")
+    @field_validator("decision_number", mode="before")
+    @classmethod
+    def blank_digits(cls, v):
+        return _blank_digits(v)
+
+    @field_validator("notes", mode="before")
     @classmethod
     def blank_to_none(cls, v):
         return _blank(v)
@@ -88,6 +119,7 @@ class AssignmentRead(BaseModel):
     employee_id: int
     sequence_number: int
     action_type: str
+    action_type_label_ar: str | None = None
     start_date: date
     end_date: date | None
     duration_text: str | None
@@ -97,3 +129,8 @@ class AssignmentRead(BaseModel):
     notes: str | None
     created_by_hr_id: int
     created_at: datetime
+
+    @model_validator(mode="after")
+    def fill_label(self):
+        self.action_type_label_ar = label_for(self.action_type, ASSIGNMENT_ACTION_LABELS_AR)
+        return self

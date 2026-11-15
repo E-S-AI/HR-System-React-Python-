@@ -18,8 +18,16 @@ from app.api.leave_forms import router as leave_forms_router
 from app.api.public_holidays import router as public_holidays_router
 from app.api.dashboard import router as dashboard_router
 from app.api.employee_files import router as employee_files_router
+from app.core.errors import register_exception_handlers
 
-app = FastAPI(title="Centralized HRMS")
+app = FastAPI(
+    title="نظام الموارد البشرية المركزي",
+    description=(
+        "Central HR management system for employees, leaves, schedules and assignments. "
+        "All user-facing messages are in Arabic; API field codes remain in English."
+    ),
+)
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

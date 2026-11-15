@@ -3,6 +3,23 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.labels_ar import (
+    ACTION_LABELS_AR,
+    ENTRY_SOURCE_LABELS_AR,
+    STATUS_LABELS_AR,
+    label_for,
+)
+from app.core.text import clean_text, to_ascii_digits
+
+
+def _blank(v):
+    return clean_text(v) if isinstance(v, str) else v
+
+
+def _blank_digits(v):
+    v = _blank(v)
+    return to_ascii_digits(v) if isinstance(v, str) else v
+
 
 class LeaveRequestCreate(BaseModel):
     leave_type_code: Literal["ADMIN", "HOURLY", "MISSION"]
@@ -15,10 +32,7 @@ class LeaveRequestCreate(BaseModel):
     @field_validator("reason", mode="before")
     @classmethod
     def blank_reason(cls, v):
-        if isinstance(v, str):
-            v = v.strip()
-            return v or None
-        return v
+        return _blank(v)
 
     @model_validator(mode="after")
     def check_dates(self):
@@ -35,6 +49,7 @@ class LeaveRequestRead(BaseModel):
     leave_type_code: str
     leave_type_name_ar: str
     entry_source: str
+    entry_source_label_ar: str | None = None
     start_date: date
     end_date: date
     start_time: time
@@ -43,6 +58,7 @@ class LeaveRequestRead(BaseModel):
     duration_minutes: int
     reason: str | None
     status: str
+    status_label_ar: str | None = None
     paper_uploaded: bool
     attachment_uploaded_at: datetime | None
     attachment_deadline_at: datetime | None
@@ -52,14 +68,35 @@ class LeaveRequestRead(BaseModel):
     hr_decision_number: str | None
     created_at: datetime
 
+    @model_validator(mode="after")
+    def fill_labels(self):
+        self.status_label_ar = label_for(self.status, STATUS_LABELS_AR)
+        self.entry_source_label_ar = label_for(self.entry_source, ENTRY_SOURCE_LABELS_AR)
+        return self
+
 
 class ApproveRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
     decision_number: str | None = Field(default=None, max_length=100)
 
+    @field_validator("decision_number", mode="before")
+    @classmethod
+    def blank_digits(cls, v):
+        return _blank_digits(v)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def blank_notes(cls, v):
+        return _blank(v)
+
 
 class RejectRequest(BaseModel):
     notes: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def clean_notes(cls, v):
+        return _blank(v)
 
 
 class ApprovalLogRead(BaseModel):
@@ -68,10 +105,20 @@ class ApprovalLogRead(BaseModel):
     id: int
     actor_user_id: int | None
     from_status: str | None
+    from_status_label_ar: str | None = None
     to_status: str
+    to_status_label_ar: str | None = None
     action_type: str
+    action_type_label_ar: str | None = None
     comment: str | None
     created_at: datetime
+
+    @model_validator(mode="after")
+    def fill_labels(self):
+        self.from_status_label_ar = label_for(self.from_status, STATUS_LABELS_AR)
+        self.to_status_label_ar = label_for(self.to_status, STATUS_LABELS_AR)
+        self.action_type_label_ar = label_for(self.action_type, ACTION_LABELS_AR)
+        return self
 
 
 class ExpireResult(BaseModel):
@@ -91,13 +138,15 @@ class HRDirectDecisionCreate(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
     notes: str | None = Field(default=None, max_length=1000)
 
-    @field_validator("hr_decision_number", "reason", "notes", mode="before")
+    @field_validator("hr_decision_number", mode="before")
+    @classmethod
+    def blank_digits(cls, v):
+        return _blank_digits(v)
+
+    @field_validator("reason", "notes", mode="before")
     @classmethod
     def strip_text(cls, v):
-        if isinstance(v, str):
-            v = v.strip()
-            return v or None
-        return v
+        return _blank(v)
 
     @model_validator(mode="after")
     def check_dates(self):

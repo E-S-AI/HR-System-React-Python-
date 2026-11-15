@@ -17,6 +17,7 @@ from app.models import (
     OrgUnit,
     User,
 )
+from app.core.text import normalize_gender
 from app.services.excel_utils import (
     RefError,
     norm_text,
@@ -43,7 +44,7 @@ COLUMNS: dict[str, tuple[str, list[str]]] = {
     "full_name_spaced": ("text", ["الاسم الثلاثي"]),
     "mother_full_name": ("text", ["اسم الأم الكامل", "اسم الأم"]),
     "national_id": ("national_id", ["الرقم الوطني"]),
-    "gender": ("text", ["الجنس"]),
+    "gender": ("gender", ["الجنس"]),
     "birth_date": ("date", ["تاريخ التولد", "تاريخ الميلاد"]),
     "birth_place": ("text", ["محل الولادة"]),
     "country": ("text", ["الدولة"]),
@@ -259,6 +260,14 @@ def _convert(kind: str, raw, lk: Lookups):
         return to_phone(raw)
     if kind == "national_id":
         return to_national_id(raw)
+    if kind == "gender":
+        t = to_text(raw)
+        if t is None:
+            return None
+        g = normalize_gender(t)
+        if g is None:
+            raise ValueError("الجنس يجب أن يكون ذكر أو أنثى")
+        return g
     if kind == "governorate":
         t = to_text(raw)
         if t is None:

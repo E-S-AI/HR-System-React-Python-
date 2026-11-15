@@ -3,6 +3,16 @@
 ## 1. Tech Stack & Style
 - Python 3.13, FastAPI, Async SQLAlchemy 2.x (`Mapped`, `mapped_column`, `AsyncSession`), Pydantic v2, Alembic, PostgreSQL.
 - Follow existing patterns: async DB queries, row locking (`with_for_update`), Arabic HTTPException messages, scope filtering via `app.services.scope.get_scope`.
+- **Arabic-first (DONE)**:
+  - `app/core/text.py`: `clean_text` (NFKC + zero-width/BiDi strip + tatweel + NBSP + whitespace collapse), `to_ascii_digits` (٠-٩/۰-۹ → 0-9), `norm_search` (diacritics/tatweel/alef/ya/ta-marbuta unified, punctuation → space, lowercase), `normalize_gender` (→ "ذكر"/"أنثى"/None).
+  - `app/core/labels_ar.py`: `*_LABELS_AR` maps (leave status/action/transaction/entry source, import status/error type, assignment action) + `FIELD_LABELS_AR`, `CHANGE_FIELD_LABELS_AR`, `label_for(code, mapping)`. `CHANGE_FIELD_LABELS_AR`/`FIELD_LABELS_AR` are built from `employee_export.EXPORT_COLUMNS`.
+  - `app/core/errors.py`: registered in `main.py`; Arabic 422 with per-field `{field,label,message}` and summary `detail`; framework 404/403/405/401 translated; unhandled → 500 Arabic (raw pydantic errors never leak).
+  - Read schemas carry `*_label_ar` fields filled by `model_validator(mode="after")` via `label_for` (so services need only pass codes): `LeaveRequestRead` (`status_label_ar`, `entry_source_label_ar`), `ApprovalLogRead` (`from/to_status_label_ar`, `action_type_label_ar`), `TransactionRead` (`transaction_type_label_ar`), `AssignmentRead` (`action_type_label_ar`), `ImportJobRead` (`status_label_ar`), `ImportErrorRead` (`error_type_label_ar`). Codes stay English in the API; Arabic is additive.
+  - Input schemas run `clean_text` (free text) and `to_ascii_digits` (IDs/phones/decision numbers/years) in `mode="before"` validators; `gender` is normalised to ذكر/أنثى.
+  - Import (`services/employee_import.py`): `"gender"` column kind → `normalize_gender`, unknown raises `ValueError("الجنس يجب أن يكون ذكر أو أنثى")` recorded as `INVALID_VALUE`. `services/excel_utils.py` now delegates to `core.text` (`norm_text = norm_search`, `to_ascii_digits` replaces local digit table, `clean_cell` uses `clean_text`).
+  - Search: `services/arabic_search.py` — `norm_sql(column)` (lower + regexp_replace diacritics/tatweel + translate alef/ya/ta-marbuta + collapse spaces) and `name_search_conditions(search, column)` (multi-word AND, each word ILIKE-normalised). `employee_export.build_conditions` uses it: `(all name words match) OR (national_id/employee_code/phone ILIKE)`.
+  - `GET /employees` accepts `sort_by` (`id` default | `name`); `name` orders by `full_name_spaced COLLATE "ar-x-icu"` and falls back to `id` if the collation is unavailable. `GET /lookups/labels?group=...` returns `{group: [{code,label_ar}]}`; `GET /lookups/employee-field-values/{field}` returns distinct values (whitelisted fields, HR scope-filtered) as `[{code,label_ar}]`.
+  - Tests: `tests/test_arabic.py` (pure functions, no DB). Dev deps in `requirements-dev.txt`. Run `python -m pytest tests -q` and `python -m compileall app`.
 
 ## 2. Completed Modules (DO NOT RE-READ OR MODIFY UNLESS NECESSARY)
 - **Auth & 2FA**: `models/user.py`, `models/role.py`, `services/auth.py`, `services/twofa.py`, `services/users.py` (Employees use 6-digit PIN; HR/Admin use Google Auth).

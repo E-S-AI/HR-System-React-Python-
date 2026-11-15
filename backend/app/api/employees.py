@@ -48,6 +48,7 @@ async def list_employees(
     permanent_or_contract: str | None = None,
     employment_status: str | None = None,
     has_account: bool | None = None,
+    sort_by: str = Query("id", description="id | name"),
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(hr_or_admin),
 ):
@@ -59,7 +60,9 @@ async def list_employees(
         employment_status=employment_status,
         has_account=has_account,
     )
-    return await svc.list_employees(db, actor, filters, skip, limit)
+    if sort_by not in ("id", "name"):
+        sort_by = "id"
+    return await svc.list_employees(db, actor, filters, skip, limit, sort_by)
 
 
 @router.get("/{employee_id}", response_model=EmployeeDetail)

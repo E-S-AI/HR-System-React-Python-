@@ -1,5 +1,4 @@
 import re
-import unicodedata
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -7,14 +6,13 @@ import csv
 import io
 from openpyxl import Workbook, load_workbook
 
+from app.core.text import clean_text, norm_search, to_ascii_digits
+
 EMPTY_TOKENS = {
     "", "-", "--", "—", "nan", "null", "none", "n/a", "na",
     "لا يوجد", "لايوجد", "غير موجود", "غير متوفر",
 }
-_ZERO_WIDTH = re.compile(r"[\u200b-\u200f\u202a-\u202e\ufeff]")
-_AR_MARKS = re.compile(r"[\u064B-\u065F\u0670\u0640]")
-_AR_MAP = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه"})
-_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_ZERO_WIDTH = re.compile(r"[​-‏‪-‮﻿]")
 _EXCEL_EPOCH = datetime(1899, 12, 30)
 _DATE_FORMATS = (
     "%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y.%m.%d",
@@ -27,19 +25,16 @@ class RefError(ValueError):
 
 def norm_text(value) -> str:
     """توحيد النص العربي للمقارنة: يتجاهل التشكيل والهمزات والرموز والمسافات الزائدة."""
-    s = unicodedata.normalize("NFKC", str(value))
-    s = _ZERO_WIDTH.sub("", s)
-    s = _AR_MARKS.sub("", s).translate(_AR_MAP)
-    s = re.sub(r"[\W_]+", " ", s)
-    return " ".join(s.split()).lower()
+    return norm_search(str(value))
 
 
 def clean_cell(v):
     if v is None:
         return None
     if isinstance(v, str):
-        s = _ZERO_WIDTH.sub("", v).replace("\xa0", " ").strip()
-        return None if s.lower() in EMPTY_TOKENS else s
+        s = clean_text(v)
+        s = (s or "").replace("\xa0", " ").strip()
+        return None if s.lower() in EMPTY_TOKENS else (s or None)
     if isinstance(v, float) and v != v:  # NaN
         return None
     return v
@@ -62,7 +57,7 @@ def to_int(v) -> int | None:
     t = to_text(v)
     if t is None:
         return None
-    t = t.translate(_DIGITS)
+    t = to_ascii_digits(t)
     if not re.fullmatch(r"\d+(\.0+)?", t):
         raise ValueError("يجب أن تكون القيمة رقماً صحيحاً")
     return int(float(t))
@@ -83,7 +78,7 @@ def to_date(v) -> date | None:
             raise ValueError("تاريخ غير صالح")
         d = (_EXCEL_EPOCH + timedelta(days=float(v))).date()
     else:
-        s = str(v).strip().translate(_DIGITS)
+        s = to_ascii_digits(str(v).strip())
         d = None
         for fmt in _DATE_FORMATS:
             try:
@@ -102,7 +97,7 @@ def to_phone(v) -> str | None:
     t = to_text(v)
     if t is None:
         return None
-    digits = re.sub(r"[^\d+]", "", t.translate(_DIGITS))
+    digits = re.sub(r"[^\d+]", "", to_ascii_digits(t))
     if re.fullmatch(r"9\d{8}", digits):  # أضاع Excel الصفر الأول
         digits = "0" + digits
     if not re.fullmatch(r"\+?\d{7,15}", digits):
@@ -114,7 +109,7 @@ def to_national_id(v) -> str | None:
     t = to_text(v)
     if t is None:
         return None
-    t = t.replace(" ", "").translate(_DIGITS)
+    t = to_ascii_digits(t.replace(" ", ""))
     if not t.isdigit():
         raise ValueError("الرقم الوطني يجب أن يتكون من أرقام فقط")
     return t
@@ -246,3 +241,4 @@ def iter_source_rows(path: Path, sheet_name: str | None, header_row: int):
             yield idx, list(row)
     finally:
         wb.close()
+

@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.excel_utils import to_national_id, to_phone
+from app.core.text import clean_text, to_ascii_digits, normalize_gender
 
 EMPLOYMENT_TYPES = ("مثبت", "متعاقد")
 
@@ -91,12 +92,21 @@ class EmployeeInput(EmployeeShape):
     @classmethod
     def blank_to_none(cls, v):
         if isinstance(v, str):
-            v = v.strip()
-            return v or None
+            return clean_text(v)
         return v
 
     @model_validator(mode="after")
     def check_values(self):
+        # الأرقام المخزنة تبقى 0-9 حتى لو أدخلها المستخدم بأرقام عربية
+        for name in ("national_id", "phone_number", "biometric_code", "civil_reg_number"):
+            v = getattr(self, name, None)
+            if isinstance(v, str):
+                setattr(self, name, to_ascii_digits(v))
+        if self.gender is not None:
+            normalized = normalize_gender(self.gender)
+            if normalized is None:
+                raise ValueError("الجنس يجب أن يكون ذكر أو أنثى")
+            self.gender = normalized
         for name, limit in MAX_LEN.items():
             v = getattr(self, name, None)
             if isinstance(v, str) and len(v) > limit:
@@ -128,6 +138,13 @@ class QualificationIn(BaseModel):
     is_hiring_qualification: bool = False
     notes: str | None = Field(default=None, max_length=5000)
 
+    @field_validator("*", mode="before")
+    @classmethod
+    def clean_strings(cls, v):
+        if isinstance(v, str):
+            return clean_text(v)
+        return v
+
 
 class TrainingIn(BaseModel):
     course_name: str = Field(min_length=1, max_length=200)
@@ -135,6 +152,13 @@ class TrainingIn(BaseModel):
     course_date: str | None = Field(default=None, max_length=50)
     duration_text: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def clean_strings(cls, v):
+        if isinstance(v, str):
+            return clean_text(v)
+        return v
 
 
 class AccountOptions(BaseModel):
@@ -262,6 +286,7 @@ class ChangeLogRead(BaseModel):
 
     id: int
     field_name: str
+    field_label_ar: str | None = None
     old_value: str | None
     new_value: str | None
     change_reason: str | None

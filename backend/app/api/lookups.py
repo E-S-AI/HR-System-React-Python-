@@ -1,11 +1,21 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_roles , get_current_user
+from app.api.deps import require_roles, get_current_user
 from app.core.database import get_db
-from app.models import AppointmentCategory, Governorate, User , LeaveType
+from app.core.labels_ar import (
+    ACTION_LABELS_AR,
+    ASSIGNMENT_ACTION_LABELS_AR,
+    ENTRY_SOURCE_LABELS_AR,
+    IMPORT_ERROR_TYPE_LABELS_AR,
+    IMPORT_STATUS_LABELS_AR,
+    STATUS_LABELS_AR,
+    TRANSACTION_LABELS_AR,
+)
+from app.models import AppointmentCategory, Employee, Governorate, User, LeaveType
+from app.services.scope import get_scope
 
 router = APIRouter(prefix="/lookups", tags=["lookups"])
 
@@ -87,3 +97,83 @@ async def leave_types(
         )
         for t in rows.all()
     ]
+
+
+# ---------------------------------------------------------------- labels
+LABEL_MAPPINGS: dict[str, dict[str, str]] = {
+    "leave_status": STATUS_LABELS_AR,
+    "leave_action": ACTION_LABELS_AR,
+    "leave_transaction": TRANSACTION_LABELS_AR,
+    "entry_source": ENTRY_SOURCE_LABELS_AR,
+    "import_status": IMPORT_STATUS_LABELS_AR,
+    "import_error_type": IMPORT_ERROR_TYPE_LABELS_AR,
+    "assignment_action": ASSIGNMENT_ACTION_LABELS_AR,
+}
+
+
+class LabelItem(BaseModel):
+    code: str
+    label_ar: str
+
+
+@router.get("/labels", response_model=dict[str, list[LabelItem]])
+async def labels(
+    group: str | None = Query(None, description="اسم مجموعة التسميات، أو احذفه لإرجاع الكل"),
+    _: User = Depends(get_current_user),
+):
+    """يرجع خريطة المجموعة -> [{code, label_ar}].
+    مثال: /lookups/labels?group=leave_status
+    """
+    groups = {group: LABEL_MAPPINGS[group]} if group else LABEL_MAPPINGS
+    if group and group not in LABEL_MAPPINGS:
+        raise HTTPException(
+            status_code=422, detail=f"مجموعة تسميات غير معروفة: {group}"
+        )
+    return {
+        g: [LabelItem(code=k, label_ar=v) for k, v in mapping.items()]
+        for g, mapping in groups.items()
+    }
+
+
+# قائمة بيضاء لقيم الحقول القابلة للاستخراج من جدول الموظفين
+_EMPLOYEE_FIELD_WHITELIST = {
+    "permanent_or_contract",
+    "employment_status",
+    "job_title_name",
+    "job_classification",
+    "current_job_category",
+    "job_rank",
+    "job_grade",
+    "marital_status",
+    "country",
+    "civil_reg_governorate",
+    "residence_governorate",
+    "appointment_category_code",
+    "governorate_code",
+}
+
+
+@router.get("/employee-field-values/{field}", response_model=list[LabelItem])
+async def employee_field_values(
+    field: str,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(hr_or_admin),
+):
+    """قيم مميزة لحقل ما في جدول الموظفين ضمن نطاق صلاحية المستخدم.
+    يعيد [{code, label_ar}] حيث code = القيمة نفسها و label_ar = القيمة.
+    مفيد لتعبئة قوائم منسدلة من بيانات موجودة فعلاً.
+    """
+    if field not in _EMPLOYEE_FIELD_WHITELIST:
+        raise HTTPException(
+            status_code=422,
+            detail=f"حقل غير مسموح استخراج قيمه: {field}",
+        )
+    col = getattr(Employee, field, None)
+    if col is None:
+        raise HTTPException(status_code=422, detail="الحقل غير موجود")
+    scope = await get_scope(db, actor)
+    stmt = select(col).where(col.is_not(None)).distinct().order_by(col)
+    if scope is not None:
+        stmt = stmt.where(scope.employee_filter())
+    rows = (await db.execute(stmt)).scalars().all()
+    return [LabelItem(code=str(v), label_ar=str(v)) for v in rows]

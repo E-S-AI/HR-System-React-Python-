@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.core.labels_ar import TRANSACTION_LABELS_AR, label_for
+from app.core.text import clean_text
 
 
 class BalanceRead(BaseModel):
@@ -23,10 +26,16 @@ class TransactionRead(BaseModel):
 
     id: int
     transaction_type: str
+    transaction_type_label_ar: str | None = None
     delta_minutes: int
     notes: str | None
     created_by_user_id: int | None
     created_at: datetime
+
+    @model_validator(mode="after")
+    def fill_label(self):
+        self.transaction_type_label_ar = label_for(self.transaction_type, TRANSACTION_LABELS_AR)
+        return self
 
 
 class GrantRequest(BaseModel):
@@ -50,3 +59,8 @@ class AdjustRequest(BaseModel):
     year: int = Field(ge=2000, le=2100)
     delta_minutes: int = Field(ge=-200000, le=200000)
     notes: str = Field(min_length=5, max_length=255)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def clean_notes(cls, v):
+        return clean_text(v) if isinstance(v, str) else v

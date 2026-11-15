@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from app.core.labels_ar import IMPORT_ERROR_TYPE_LABELS_AR, IMPORT_STATUS_LABELS_AR, label_for
 
 
 class ImportErrorRead(BaseModel):
@@ -10,7 +12,13 @@ class ImportErrorRead(BaseModel):
     column_name: str | None
     raw_value: str | None
     error_type: str
+    error_type_label_ar: str | None = None
     error_message_ar: str
+
+    @model_validator(mode="after")
+    def fill_label(self):
+        self.error_type_label_ar = label_for(self.error_type, IMPORT_ERROR_TYPE_LABELS_AR)
+        return self
 
 
 class ImportJobRead(BaseModel):
@@ -27,9 +35,15 @@ class ImportJobRead(BaseModel):
     error_rows: int
     duplicate_rows: int
     status: str
+    status_label_ar: str | None = None
     column_mapping: dict | None
     created_at: datetime
     committed_at: datetime | None
+
+    @model_validator(mode="after")
+    def fill_label(self):
+        self.status_label_ar = label_for(self.status, IMPORT_STATUS_LABELS_AR)
+        return self
 
 
 class ImportPreview(ImportJobRead):
