@@ -1,4 +1,5 @@
 from app.models.appointment_category import AppointmentCategory
+from app.models.attendance import AttendanceRecord, AttendanceSyncLog, BiometricDevice
 from app.models.employee import Employee
 from app.models.employee_change_log import EmployeeChangeLog
 from app.models.employee_extra import EmployeeQualification, EmployeeTraining
@@ -18,9 +19,13 @@ from app.models.role import Role, user_roles
 from app.models.user import User
 from app.models.work_schedule import WorkSchedule
 from app.models.assignment import EmployeeAssignment
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "AppointmentCategory",
+    "AttendanceRecord",
+    "AttendanceSyncLog",
+    "BiometricDevice",
     "Employee",
     "EmployeeAssignment",
     "EmployeeQualification",
@@ -43,4 +48,5 @@ __all__ = [
     "WorkSchedule",
     "user_roles",
     "EmployeeChangeLog",
+    "AuditLog",
 ]

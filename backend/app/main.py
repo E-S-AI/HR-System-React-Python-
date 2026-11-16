@@ -17,8 +17,11 @@ from app.api.leave_requests import router as leave_requests_router
 from app.api.leave_forms import router as leave_forms_router
 from app.api.public_holidays import router as public_holidays_router
 from app.api.dashboard import router as dashboard_router
+from app.api.attendance import router as attendance_router
 from app.api.employee_files import router as employee_files_router
 from app.core.errors import register_exception_handlers
+from app.api.audit_logs import router as audit_logs_router
+from app.core.scheduler import scheduler_lifespan
 
 app = FastAPI(
     title="نظام الموارد البشرية المركزي",
@@ -26,6 +29,7 @@ app = FastAPI(
         "Central HR management system for employees, leaves, schedules and assignments. "
         "All user-facing messages are in Arabic; API field codes remain in English."
     ),
+    lifespan=scheduler_lifespan,
 )
 register_exception_handlers(app)
 
@@ -51,6 +55,8 @@ app.include_router(leave_requests_router)
 app.include_router(leave_forms_router)
 app.include_router(public_holidays_router)
 app.include_router(dashboard_router)
+app.include_router(attendance_router)
+app.include_router(audit_logs_router)
 
 
 

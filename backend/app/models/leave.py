@@ -101,7 +101,9 @@ class LeaveTransaction(Base):
     leave_request_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("leave_requests.id")
     )
-    attendance_record_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
+    attendance_record_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("attendance_records.id"), unique=True
+    )
     transaction_type: Mapped[str] = mapped_column(String(40))
     delta_minutes: Mapped[int] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(String(255))

@@ -67,6 +67,36 @@ IMPORT_ERROR_TYPE_LABELS_AR = {
     "OUT_OF_SCOPE": "خارج نطاق الصلاحية",
 }
 
+# Attendance final system statuses (attendance_records.final_system_status)
+ATTENDANCE_STATUS_LABELS_AR = {
+    "PRESENT": "حاضر",
+    "LATE": "تأخير",
+    "EARLY_LEAVE": "انصراف مبكر",
+    "LATE_AND_EARLY": "تأخير وانصراف مبكر",
+    "ON_LEAVE": "في إجازة",
+    "ON_MISSION": "في مهمة رسمية",
+    "OFFICIAL_HOLIDAY": "عطلة رسمية",
+    "WEEKEND": "عطلة أسبوعية",
+    "ABSENT": "غائب",
+    "MISSING_PUNCH": "بصمة ناقصة",
+    "UNMAPPED_USER": "مستخدم غير مرتبط بموظف",
+    "PENDING_REVIEW": "بانتظار المراجعة",
+}
+
+# Attendance record source types (attendance_records.source_type)
+ATTENDANCE_SOURCE_LABELS_AR = {
+    "EXCEL_IMPORT": "استيراد من ملف",
+    "PLATFORM_SYNC": "مزامنة من منصة البصمة",
+    "MANUAL": "إدخال يدوي",
+}
+
+# Attendance sync sources (attendance_sync_logs.sync_source)
+ATTENDANCE_SYNC_SOURCE_LABELS_AR = {
+    "EXCEL_IMPORT": "استيراد من ملف",
+    "PLATFORM_API": "واجهة منصة البصمة",
+}
+
+
 from app.services.employee_export import EXPORT_COLUMNS
 
 # Employee change log field names: every employee field uses its Arabic Excel label,
@@ -126,6 +156,18 @@ FIELD_LABELS_AR.update(
     "name_ar": "الاسم",
     "date_from": "من تاريخ",
     "date_to": "إلى تاريخ",
+    "LOGIN_SUCCESS": "تسجيل دخول ناجح",
+    "LOGIN_FAILED": "محاولة دخول فاشلة",
+    "USER_CREATE": "إنشاء حساب مستخدم",
+    "PASSWORD_RESET": "إعادة تعيين كلمة سر",
+    "PIN_RESET": "إعادة تعيين الرمز السري",
+    "USER_UNLOCK": "فك قفل حساب",
+    "TWOFA_RESET": "إعادة ضبط المصادقة الثنائية",
+    "SCOPE_CHANGE": "تعديل نطاق صلاحيات",
+    "SCHEDULE_CHANGE": "تعديل جدول الدوام الرسمي",
+    "HOLIDAY_CHANGE": "تعديل العطل الرسمية",
+    "ANNUAL_GRANT_RUN": "تشغيل المنح السنوي للأرصدة",
+    "AUTO_REJECT_72H_RUN": "رفض آلي للطلبات المتجاوزة 72 ساعة",
     }
 )
 
